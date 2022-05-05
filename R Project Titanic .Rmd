@@ -1,0 +1,361 @@
+---
+title: "R Project"
+output: pdf_document
+---
+Let's load packages
+
+```{r}
+library(tidyverse)
+library(titanic)
+library(kernlab)
+library(rsample)
+library(caret)
+library(vip)      
+library(modeldata)
+library(rattle)
+library(e1071)
+```
+
+Let's load our data 
+```{r}
+data <- titanic_train
+```
+
+
+1/ Exploratory Data Analysis
+Information about my data 
+
+```{r}
+head(data)
+str(data)
+summary(data)
+```
+
+Let's check if there's missing values
+```{r}
+missmap(data, col=c('black', 'grey'))
+
+```
+
+The missing map shows that we have missing values in the column Age 
+
+Let's calculate the Na values now
+```{r}
+table(is.na(data))
+```
+
+We can see that we have 177 Na values 
+Let's detect the column that have missing values 
+```{r}
+names(data)[sapply(data, anyNA)] 
+```
+The column Age is the column that has missing values. (Same result as the missingmap)
+
+Let's see if we have empty values 
+```{r}
+colSums(data=="")
+```
+As we can see the columns Cabin, Emabarked and also age have empty values.
+687 missing values in Cabin and 2missing values in Embarked
+
+Now let's replace the empty values by another known values.
+we will replace the missing values in the column "Embarked" with "S" for example
+
+```{r}
+data$Embarked[data$Embarked==""]="S"
+```
+
+Lets remove missing values from our data
+```{r}
+data = na.omit(data)
+missmap(data, col=c('black', 'grey')) #selecting only not NA values
+```
+
+The missing map is all grey which means that we removed Na values
+
+Let's now remove missing values from the column Survived
+```{r}
+data$Survived[is.na(data$Survived)] == 0
+sum(is.na(data$Survived))
+str(data)
+```
+
+
+Since PassengerId is the primary key in our data, let's make sure that it doesn't contains doubles 
+```{r}
+duplicated_id <- data.frame(table(data$PassengerId)) #looking for duplicated id's
+duplicated_id[duplicated_id$Freq > 1,] #id's that appeared more than once
+```
+0 rows, means that no id's appears more than once, which also means we don't have doubles
+
+So we can work with this data set we need to change features to factors 
+```{r}
+features<- c("Survived","Pclass","Sex","Embarked")
+for (a in features){
+  data[,a] <- as.factor(data[,a])
+}
+
+```
+
+Let's check our data now 
+```{r}
+str(data)
+```
+As we can see our columns became factors now.
+
+Let's know more about our data, let's study the relationship between our features 
+Survival and Emabarked
+```{r}
+ggplot(data, aes(x=Embarked, fill=Survived))+ geom_bar(position="fill")+ylab("Frequency")
+```
+The graphic shows that we have a higher % of survivors in the class "C" than class "Q" and class "S"
+So we can say that people will have more chance to survive if they are in the class "C"
+Which also means ther's a realtionship between the two columns survived and Embarked
+
+Let's look at the statictics now
+```{r}
+table<- table(data$Embarked, data$Survived)
+for (b in 1:dim(table)[1]){
+  table[b,]<- table[b,]/sum(table[b,])*100
+}
+table
+```
+The statistics shows the same thing: if we are in the class "C" we have 55% of survivors and 44% of non survivors
+if we are in the class "Q" we have only 38% of survivors and 61% of non survivors
+in the class "S" we have 33% of survivors and 66% of non survivors
+this statistics confirms our hypothesis about the relationship between this two features
+
+Let's now see the realtionship between Survival and Pclass 
+```{r}
+ggplot(data, aes(x=Pclass, fill=Survived))+ geom_bar(position="fill")+ylab("Frequency")
+```
+The graph shows that we have more survivors in the class 1 than 2 and 3 
+
+Let's combine these 2 features and plot the frequency of survived in each Pclass for Embarked:
+```{r}
+ggplot(data, aes(x=Embarked, fill=Survived))+ geom_bar(position="fill")+facet_wrap(~Pclass)
+
+```
+We can see that we have more survivors in the class 1 and 2 than 3. Moreover, in the class 1 we have more survivors in "C" and "S" , which is not the case for class 2 and class 3. 
+Which means, we can't determine clearly the relationship between these features. 
+
+Let's now look at the realtionship between surived and sex
+```{r}
+ggplot(data, aes(x=Sex, fill=Survived))+ geom_bar(position="fill")+ylab("Frequency")
+```
+The graph shows that we have more survivors in the female category.
+
+2/ Data Prediction 
+```{r}
+set.seed(4595)
+```
+
+Let's split our data into training and testing
+```{r}
+data_intrain <- createDataPartition(y = data$Survived, p = 0.8, list = FALSE)
+training <- data[data_intrain, ]
+testing <- data[-data_intrain, ]
+dim(training)
+dim(testing)
+
+```
+As we can see our training data contains 714 rows and 12 columns, and our testing data contains 177 rows and 12 columns. This will help us to test our model on testing (unseen) data.
+
+Let's use now logistic regression with one feature
+```{r}
+mod_titanic <- train(Survived ~ Sex, data = training, method = 'glm')
+summary(mod_titanic)
+vip(mod_titanic)
+mod_titanic$finalModel
+predictions <- predict(mod_titanic, testing)
+head(predictions)
+```
+
+Let's measure the performance of our model with the confusion matrix 
+```{r}
+confusionMatrix(predictions, testing$Survived)
+```
+We have an accuarcy of 0.7458  
+Let's plot our confusion matrix
+
+```{r}
+ctable <- as.table(matrix(c(92,28,17,40), nrow = 2, byrow = TRUE))
+ctable
+
+fourfoldplot(ctable, color = c('#99CCFF', '#99CC99'),
+             conf.level = 0, margin = 1, main = 'Confusion Matrix Survived-non survived')  
+str(data)
+```
+The result of the confusion matrix seems good, let's see if we can do better by adding more features
+
+logistic regression with two variables
+```{r}
+mod_titanic <- train(Survived ~ Sex + Pclass , data = training, method = 'glm')
+summary(mod_titanic)
+vip(mod_titanic)
+mod_titanic$finalModel
+predictions <- predict(mod_titanic, testing)
+head(predictions)
+```
+The results shows that the error in sex column (0.2102) is lower than the one in PClass
+And even the graph shows that the Sex column is more important than the PClass column
+
+Let's plot the confusion matrix 
+```{r}
+confusionMatrix(predictions, testing$Survived)
+ctable <- as.table(matrix(c(92,18,17,40), nrow = 2, byrow = TRUE))
+ctable
+fourfoldplot(ctable, color = c('#99CCFF', '#99CC99'),
+             conf.level = 0, margin = 1, main = 'Confusion Matrix Survived-non survived') 
+```
+
+We have the same Accuracy : 0.7458 and the same confusion matrix.
+Let's add other features
+
+```{r}
+mod_titanic <- train(Survived ~ Sex +  Pclass + Embarked + SibSp + Fare , data = training, method = 'glm')
+summary(mod_titanic)
+vip(mod_titanic)
+mod_titanic$finalModel
+predictions <- predict(mod_titanic, testing)
+head(predictions)
+confusionMatrix(predictions, testing$Survived)
+```
+ We have lower Accuracy : 0.7401 than the previous models. 
+ And as the graph shows the Pclass and sex are the most important features
+ 
+ Let's plot the confusion matrix 
+```{r}
+ctable <- as.table(matrix(c(89, 26, 20, 42), nrow = 2, byrow = TRUE))
+```
+
+
+```{r}
+ctable
+fourfoldplot(ctable, color = c('#99CCFF', '#99CC99'),
+             conf.level = 0, margin = 1, main = 'Confusion Matrix Survived-non survived')
+```
+ Even the previous confusion matrix is better. 
+ We can confirm the second model now. 
+ 
+Let's train our model with decision tree now
+
+```{r}
+modFit <- train(Survived ~ Sex + Pclass+ SibSp + Embarked + Fare, data = training, method="rpart")
+modFit
+print(modFit$finalModel)
+```
+
+Let's plot the tree
+```{r}
+plot(modFit$finalModel, uniform=TRUE, 
+     main="Classification Tree")
+text(modFit$finalModel, use.n=TRUE, all=TRUE, cex=.6)
+```
+```{r}
+fancyRpartPlot(modFit$finalModel)
+predictions <- predict(modFit, testing)
+predict(modFit, newdata=testing)
+confusionMatrix(predictions, testing$Survived)$overall["Accuracy"]
+```
+We have an accuracy of 0.7514124 which is higher than all previous models 
+Let's plot the confusion matrix 
+```{r}
+confusionMatrix(predictions, testing$Survived)
+ctable <- as.table(matrix(c(100, 34, 9, 34), nrow = 2, byrow = TRUE))
+ctable
+fourfoldplot(ctable, color = c('#99CCFF', '#99CC99'),
+             conf.level = 0, margin = 1, main = 'Confusion Matrix Survived-non survived')
+```
+
+Even the confusion matrix is better, but we can always do better. Let's try the random forest model
+
+Random forest model
+```{r}
+modFit <- train(Survived ~ Sex + Pclass + SibSp + Embarked + Fare  , data = training, method="rf", prox=TRUE)
+modFit
+pred <- predict(modFit,testing) 
+
+# Predicting new values with random forests models
+pred <- predict(modFit, testing)
+testing$predRight <- pred == testing$Survived
+table(pred, testing$Survived)
+
+```
+```{r}
+confusionMatrix(pred, testing$Survived)
+pred_train <- predict(modFit, training)
+confusionMatrix(pred_train, training$Survived)$overall['Accuracy']
+ctable <- as.table(matrix(c(102, 33, 7, 35), nrow = 2, byrow = TRUE))
+ctable
+fourfoldplot(ctable, color = c('#99CCFF', '#99CC99'),
+             conf.level = 0, margin = 1, main = 'Confusion Matrix Survived-non survived')
+```
+As we can see we have better Accuracy : 0.837535  and even better confusion matrix, because the blue area got reduced and the gree got bigger. 
+
+This is the best model we have got untill now. 
+Let's try other models like Naive Bayes classier
+
+```{r}
+modnb <- train(Survived ~ Sex + Pclass + SibSp + Embarked + Fare, data=training, method="nb")
+pnb = predict(modnb,testing)
+table(pnb)
+```
+Let's plot confusion matrix
+```{r}
+confusionMatrix(pnb, testing$Survived)
+ctable <- as.table(matrix(c(88, 25, 21, 43), nrow = 2, byrow = TRUE))
+ctable
+
+fourfoldplot(ctable, color = c('#99CCFF', '#99CC99'),
+             conf.level = 0, margin = 1, main = 'Confusion Matrix Survived-non survived')
+nb_accuracy = sum(diag(ctable)) / sum(ctable)
+nb_accuracy
+
+```
+
+Lower accuracy 0.740113 than random forest and worse confusion matrix
+
+Let's try the KNN model now
+
+```{r}
+train_knn <- train(Survived ~ Sex + Pclass + SibSp + Embarked + Fare, method = "knn", 
+                   data = training,
+                   tuneGrid = data.frame(k = seq(1, 200, 2)))
+train_knn$bestTune
+pred_knn <- predict(train_knn,testing)
+confusionMatrix(pred_knn, testing$Survived)
+confusionMatrix(pred_knn, testing$Survived)$overall["Accuracy"]
+ctable <- as.table(matrix(c(95, 14, 28, 40), nrow = 2, byrow = TRUE))
+ctable
+fourfoldplot(ctable, color = c('#99CCFF', '#99CC99'),
+            conf.level = 0, margin = 1, main = 'Confusion Matrix Survived-non survived')
+```
+As we can see  the accuracy is 0.7740113 better than the naive bayes classifier but not better than the random forest model.
+
+```{r}
+
+mod_svm <- svm(Survived ~ Sex + Pclass + SibSp + Embarked + Fare,
+               data = training,
+               type = 'C-classification',
+               kernel = 'linear')
+
+# Predicting the Test set results
+y_pred <- predict(mod_svm, testing)
+y_pred
+
+
+#Making Confusion Matrix
+confusionMatrix(y_pred, testing$Survived)
+```
+
+3/ Conclusion 
+In this project we have used titanic dataset to predict our features. With the feature survived we predicted our model. Moreover the most important features in this dataset are sex and Pclass. Which means if we wanted to do a feature selection we could have only kept these two features to train our model. 
+The feature Age is estimated very important but the model kept refusing not categorical variables, that's why we didn't use it in our training model.
+
+As we can see, we have used a lot of methods to predict our data : logistic regression, decision tree, random forest, Naive Bayes Classifier and KNN. 
+We achieved an accuracy of 84% with the random forest model.But, unfortunately we only achieved around 75% with other models. 
+
+We can say  that the best one for our dataset is random forest. 
+
+
